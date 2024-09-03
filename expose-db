@@ -1,0 +1,95 @@
+Here are some steps to take to expose a database;
+
+First, we have to apply the config map below in the nginx namespace;
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-services
+  namespace: ingress-nginx  # Use the namespace where your NGINX ingress controller is running
+data:
+  5432: "default/postgresql-service:5432"
+Note that defualt is the namespace
+postgres service is the principal service we want to expose
+
+secondly, we have to edit our ingress controller deployment and add the following args
+
+$ kubectl edit deployment (ingress-controller deployment) -n ingress-nginx; 
+
+Add the following line of code;
+
+     - --tcp-services-configmap=ingress-nginx/tcp-services
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  template:
+    spec:
+      containers:
+        - name: nginx-ingress-controller
+          args:
+            - /nginx-ingress-controller
+            - --tcp-services-configmap=ingress-nginx/tcp-services
+
+Now you have to edit the ingress service of type loadbalancer
+use $kubectl edit svc (ingress-loadbalancer svc) -n ingress-nginx
+add:     - name: postgres
+      port: 5432
+      targetPort: 5432
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/component: controller
+
+  Now TCP traffic can be routed with your ingress controller;
+
+  remeber to use kubectl rollout restart to restart the nginx deployment pod.
+
+  Finally create an ingress yaml to expose your application, 
+
+  also remeber to create A record in dns zones.
+
+  apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: postgres-ingress
+  namespace: postgres
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"  # Disable SSL redirect
+spec:
+  ingressClassName: "nginx"  # Ensure your NGINX Ingress controller is properly set up
+  rules:
+  - host: postgres.youth-insight.ca  # Replace with a domain if you want to use a domain name
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: postgres
+            port:
+              number: 5432
+
+
+  
+
